@@ -102,7 +102,7 @@
     <script>
         const AppConfig = {
             // AI is proxied server-side. Never store provider credentials in browser JavaScript.
-            aiHost: "/api/ai/chat",
+            aiHost: window.VIDTUBE_AI_ENDPOINT || "/api/ai/chat",
             videoApi: "https://api.dailymotion.com/videos",
             itemsPerPage: 20
         };
@@ -506,7 +506,7 @@
                     const query = String(Store.query || "").trim();
                     const isTrending = !query || query.toLowerCase() === "trending";
                     const params = new URLSearchParams({
-                        fields: "id,thumbnail_720_url,title,owner.screenname,views_total,duration,created_time,description,width,height,verified",
+                        fields: "id,thumbnail_720_url,title,owner.screenname,views_total,duration,created_time,description,width,height",
                         limit: String(AppConfig.itemsPerPage),
                         page: String(Store.page),
                         sort: isTrending ? "trending" : "relevance"
@@ -822,7 +822,7 @@
 
                 try {
                     const params = new URLSearchParams({
-                        fields: "id,thumbnail_720_url,title,owner.screenname,views_total,duration,created_time,description,width,height,verified",
+                        fields: "id,thumbnail_720_url,title,owner.screenname,views_total,duration,created_time,description,width,height",
                         limit: "20",
                         page: "1",
                         sort: "relevance",
@@ -943,24 +943,16 @@
                     const response = await fetch(AppConfig.aiHost, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            messages: [
-                                {
-                                    role: "system",
-                                    content: "You are VidTube AI, a helpful, concise video assistant. Do not claim that a video was found, played, or analyzed unless the app confirms that action. If asked who created VidTube, answer that it was created by Arvind Dara Bishnoi."
-                                },
-                                { role: "user", content: message }
-                            ]
-                        })
+                        body: JSON.stringify({ message })
                     });
                     if (!response.ok) throw new Error("AI backend returned HTTP " + response.status);
                     const data = await response.json();
-                    loader.remove();
 
                     const reply = data && data.choices && data.choices[0] && data.choices[0].message
                         ? String(data.choices[0].message.content || "")
                         : "";
                     if (!reply) throw new Error("AI returned an empty response");
+                    loader.remove();
                     this.typewriterEffect(reply, msgBox);
                 } catch (error) {
                     loader.textContent = "AI is unavailable. Deploy the secure AI function and configure CHATANYWHERE_API_KEY.";
