@@ -1,908 +1,176 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>StreamHub Pro - AI Powered Video Platform</title>
-    
-    <!-- External Libraries -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet">
-    
-    <!-- Configuration & Custom Styles -->
-    <style>
-        :root {
-            --primary: #3b82f6;
-            --danger: #ef4444;
-            --bg-body: #f9f9f9;
-            --bg-card: #ffffff;
-            --text-main: #0f0f0f;
-            --text-sec: #606060;
-            --border: #e5e7eb;
-        }
-
-        body {
-            font-family: 'Roboto', sans-serif;
-            background-color: var(--bg-body);
-            color: var(--text-main);
-            overflow-x: hidden;
-        }
-
-        /* --- Advanced Scrollbar --- */
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cfcfcf; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #a0a0a0; }
-
-        /* --- Utilities --- */
-        .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
-        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-        .hide-scroll::-webkit-scrollbar { display: none; }
-        
-        /* --- Skeleton Loading Animation (Shimmer) --- */
-        .skeleton {
-            background-color: #e0e0e0;
-            position: relative;
-            overflow: hidden;
-        }
-        .skeleton::after {
-            content: "";
-            position: absolute;
-            top: 0; right: 0; bottom: 0; left: 0;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
-            transform: translateX(-100%);
-            animation: shimmer 1.5s infinite;
-        }
-        @keyframes shimmer { 100% { transform: translateX(100%); } }
-
-        /* --- Components --- */
-        .sidebar-item { transition: all 0.2s; border-radius: 10px; }
-        .sidebar-item:hover, .sidebar-item.active { background-color: #f3f4f6; font-weight: 500; }
-        
-        .video-card { transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-        .video-card:hover { transform: scale(1.01); z-index: 10; }
-        .video-card:hover .thumbnail { border-radius: 0; }
-        
-        .chip { transition: all 0.2s; }
-        .chip:hover { background-color: #e5e7eb; }
-        .chip.active { background-color: #0f0f0f; color: white; }
-
-        /* --- Player Styles --- */
-        #player-modal { transition: opacity 0.3s ease; }
-        .player-actions button { transition: 0.2s; }
-        .player-actions button:hover { background-color: #f3f4f6; }
-
-        /* --- AI Chat Window Animations --- */
-        #ai-widget { transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s; }
-        .message-bubble { animation: popIn 0.3s ease-out forwards; opacity: 0; transform: translateY(10px); }
-        @keyframes popIn { to { opacity: 1; transform: translateY(0); } }
-
-        /* --- Toast Notifications --- */
-        #toast-container { position: fixed; bottom: 20px; left: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
-        .toast {
-            background: #333; color: white; padding: 12px 24px; border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-size: 14px;
-            animation: slideIn 0.3s ease-out forwards; transform: translateX(-100%);
-        }
-        @keyframes slideIn { to { transform: translateX(0); } }
-        @keyframes slideOut { to { transform: translateX(-200%); opacity: 0; } }
-
-        /* --- Red Progress Bar --- */
-        .progress-bar-bg { position: absolute; bottom: 0; left: 0; width: 100%; height: 3px; background: rgba(255,255,255,0.3); }
-        .progress-fill { height: 100%; background: #f00; }
-
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="VidTube discovers and plays public Dailymotion videos. Rankings use provider metadata only.">
+  <title>VidTube</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 22'%3E%3Crect rx='6' width='32' height='22' fill='%23ff0033'/%3E%3Cpath d='M13 6l9 5-9 5V6z' fill='white'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
 </head>
-<body class="bg-white">
-
-    <!-- =========================================
-         STATE & CONFIGURATION (Global Store)
-    ========================================== -->
-    <script>
-        const AppConfig = {
-            apiKey: "sk-I7liW57oWSJBRFaa1yLr0v9nYOh5PZJb9NAInR22LwbYhEon",
-            aiHost: "https://api.chatanywhere.tech/v1/chat/completions",
-            videoApi: "https://api.dailymotion.com/videos",
-            itemsPerPage: 20
-        };
-
-        // हर बार रिफ्रेश करने पर रैंडम टॉपिक्स की लिस्ट
-        const randomTopics = [
-            "latest trending", "viral videos", "music hits India", 
-            "gaming highlights", "comedy shorts", "tech gadgets", 
-            "news today", "sports moments", "cooking hacks", 
-            "bollywood updates", "cricket highlights", "motivation hindi"
-        ];
-        const randomInitialQuery = randomTopics[Math.floor(Math.random() * randomTopics.length)];
-
-        // Centralized State Management
-        const Store = {
-            videos: [],
-            shorts: [],
-            page: 1,
-            query: randomInitialQuery, // यहाँ रैंडम टॉपिक सेट किया गया है
-            isLoading: false,
-            isSidebarOpen: true,
-            watched: JSON.parse(localStorage.getItem('sh_watched')) || {},
-            liked: JSON.parse(localStorage.getItem('sh_liked')) || {},
-            subs: JSON.parse(localStorage.getItem('sh_subs')) || [],
-            
-            // Methods
-            saveWatched: (id, percent) => {
-                Store.watched[id] = percent;
-                localStorage.setItem('sh_watched', JSON.stringify(Store.watched));
-            },
-            toggleLike: (id) => {
-                if(Store.liked[id]) delete Store.liked[id];
-                else Store.liked[id] = true;
-                localStorage.setItem('sh_liked', JSON.stringify(Store.liked));
-                return !!Store.liked[id];
-            },
-            toggleSub: (channel) => {
-                const idx = Store.subs.indexOf(channel);
-                if(idx > -1) Store.subs.splice(idx, 1);
-                else Store.subs.push(channel);
-                localStorage.setItem('sh_subs', JSON.stringify(Store.subs));
-                return idx === -1; // true if subscribed
-            }
-        };
-    </script>
-
-    <!-- =========================================
-         NAVBAR SECTION
-    ========================================== -->
-    <nav class="fixed top-0 left-0 right-0 h-14 bg-white z-50 flex items-center justify-between px-4 border-b border-gray-100">
-        <!-- Left: Logo & Menu -->
-        <div class="flex items-center gap-4">
-            <button id="menu-btn" class="p-2 rounded-full hover:bg-gray-100 active:bg-gray-200 transition">
-                <i class="fas fa-bars text-lg text-gray-700"></i>
-            </button>
-            <div class="flex items-center gap-1 cursor-pointer" onclick="window.scrollTo(0,0); App.reset();">
-                <div class="text-red-600 text-2xl"><i class="fab fa-youtube"></i></div>
-                <span class="font-bold text-xl tracking-tighter text-gray-800 hidden sm:block">StreamHub</span>
-            </div>
-        </div>
-
-        <!-- Center: Search -->
-        <div class="flex-1 max-w-2xl mx-4 hidden sm:flex items-center">
-            <div class="flex w-full relative group">
-                <input type="text" id="search-input" 
-                    class="w-full h-10 border border-gray-300 rounded-l-full px-4 outline-none focus:border-blue-500 shadow-inner bg-gray-50 focus:bg-white transition"
-                    placeholder="Search videos, channels...">
-                <div class="absolute right-0 top-0 h-10 w-10 flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer text-gray-400 hover:text-gray-600" onclick="document.getElementById('search-input').value = ''">
-                    <i class="fas fa-times"></i>
-                </div>
-            </div>
-            <button id="search-btn" class="h-10 px-6 bg-gray-100 border border-l-0 border-gray-300 rounded-r-full hover:bg-gray-200 transition text-gray-600">
-                <i class="fas fa-search"></i>
-            </button>
-            <button class="ml-3 w-10 h-10 bg-gray-100 rounded-full hover:bg-gray-200 flex items-center justify-center text-gray-700 transition tooltip" title="Voice Search">
-                <i class="fas fa-microphone"></i>
-            </button>
-        </div>
-
-        <!-- Right: Actions -->
-        <div class="flex items-center gap-2 sm:gap-4">
-            <button class="sm:hidden p-2 text-gray-700"><i class="fas fa-search"></i></button>
-            
-            <button onclick="App.toggleAI()" class="hidden md:flex items-center gap-2 bg-blue-50 text-blue-600 px-3 py-1.5 rounded-full text-sm font-semibold hover:bg-blue-100 transition border border-blue-200">
-                <i class="fas fa-sparkles"></i>
-                <span>Ask AI</span>
-            </button>
-
-            <div class="relative cursor-pointer p-2 hover:bg-gray-100 rounded-full">
-                <i class="far fa-bell text-xl text-gray-700"></i>
-                <span class="absolute top-1 right-1 w-2 h-2 bg-red-600 rounded-full border-2 border-white"></span>
-            </div>
-
-            <div class="w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold text-sm cursor-pointer hover:scale-105 transition shadow-md">
-                U
-            </div>
-        </div>
-    </nav>
-
-    <!-- =========================================
-         LAYOUT CONTAINER
-    ========================================== -->
-    <div class="flex pt-14 h-screen">
-        
-        <!-- SIDEBAR -->
-        <aside id="sidebar" class="w-64 bg-white h-full overflow-y-auto hidden lg:block pb-4 pr-2 hover:overflow-y-scroll transition-all flex flex-col justify-between">
-            <div class="p-3 space-y-1">
-                <div onclick="App.filter('Trending')" class="sidebar-item active flex items-center gap-5 px-3 py-2.5 cursor-pointer text-gray-800">
-                    <i class="fas fa-home text-lg w-6"></i> <span class="text-sm">Home</span>
-                </div>
-                <div class="sidebar-item flex items-center gap-5 px-3 py-2.5 cursor-pointer text-gray-800">
-                    <i class="fas fa-bolt text-lg w-6"></i> <span class="text-sm">Shorts</span>
-                </div>
-                <div class="sidebar-item flex items-center gap-5 px-3 py-2.5 cursor-pointer text-gray-800">
-                    <i class="fab fa-youtube text-lg w-6"></i> <span class="text-sm">Subscriptions</span>
-                </div>
-                
-                <hr class="my-3 border-gray-200">
-                
-                <h3 class="px-3 text-sm font-semibold text-gray-500 mb-1 flex items-center gap-2">You <i class="fas fa-chevron-right text-xs"></i></h3>
-                <div class="sidebar-item flex items-center gap-5 px-3 py-2.5 cursor-pointer text-gray-800">
-                    <i class="fas fa-history text-lg w-6"></i> <span class="text-sm">History</span>
-                </div>
-                <div class="sidebar-item flex items-center gap-5 px-3 py-2.5 cursor-pointer text-gray-800">
-                    <i class="far fa-clock text-lg w-6"></i> <span class="text-sm">Watch Later</span>
-                </div>
-                <div class="sidebar-item flex items-center gap-5 px-3 py-2.5 cursor-pointer text-gray-800">
-                    <i class="far fa-thumbs-up text-lg w-6"></i> <span class="text-sm">Liked Videos</span>
-                </div>
-
-                <hr class="my-3 border-gray-200">
-                
-                <h3 class="px-3 text-sm font-semibold text-gray-500 mb-2">Explore</h3>
-                <div onclick="App.filter('Music')" class="sidebar-item flex items-center gap-5 px-3 py-2.5 cursor-pointer text-gray-800">
-                    <div class="w-6 text-center"><i class="fas fa-music text-lg"></i></div> <span class="text-sm">Music</span>
-                </div>
-                <div onclick="App.filter('Gaming')" class="sidebar-item flex items-center gap-5 px-3 py-2.5 cursor-pointer text-gray-800">
-                    <div class="w-6 text-center"><i class="fas fa-gamepad text-lg"></i></div> <span class="text-sm">Gaming</span>
-                </div>
-                <div onclick="App.filter('News')" class="sidebar-item flex items-center gap-5 px-3 py-2.5 cursor-pointer text-gray-800">
-                    <div class="w-6 text-center"><i class="far fa-newspaper text-lg"></i></div> <span class="text-sm">News</span>
-                </div>
-                <div onclick="App.filter('Sports')" class="sidebar-item flex items-center gap-5 px-3 py-2.5 cursor-pointer text-gray-800">
-                    <div class="w-6 text-center"><i class="fas fa-trophy text-lg"></i></div> <span class="text-sm">Sports</span>
-                </div>
-                
-                <hr class="my-3 border-gray-200">
-                
-                <!-- Updated Footer with Arvind Bishnoi Credit -->
-                <div class="px-4 text-xs text-gray-500 font-medium pb-4">
-                    <p class="mb-2 hover:text-gray-800 cursor-pointer">About Press Copyright</p>
-                    <p class="mb-2 hover:text-gray-800 cursor-pointer">Contact us Creators</p>
-                    <p class="mb-2 hover:text-gray-800 cursor-pointer">Developers</p>
-                    
-                    <div class="mt-4 p-3 bg-gray-50 rounded-xl border border-gray-100 shadow-sm text-center">
-                        <p>© 2026 StreamHub LLC</p>
-                        <p class="mt-1 text-sm text-blue-600 font-bold flex items-center justify-center gap-1">
-                            <i class="fas fa-code text-xs"></i> @ Arvind Bishnoi
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </aside>
-
-        <!-- MAIN CONTENT AREA -->
-        <main id="main-content" class="flex-1 h-full overflow-y-auto bg-white relative">
-            
-            <!-- Category Pills (Sticky) -->
-            <div class="sticky top-0 bg-white/95 backdrop-blur-sm z-30 px-4 py-3 border-b border-gray-100 flex gap-3 overflow-x-auto hide-scroll">
-                <button onclick="App.filter('Trending')" class="chip active bg-black text-white px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap">All</button>
-                <button onclick="App.filter('Programming')" class="chip bg-gray-100 text-gray-800 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap">Programming</button>
-                <button onclick="App.filter('Music India')" class="chip bg-gray-100 text-gray-800 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap">Music</button>
-                <button onclick="App.filter('Comedy Sketches')" class="chip bg-gray-100 text-gray-800 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap">Comedy</button>
-                <button onclick="App.filter('Live Stream')" class="chip bg-gray-100 text-gray-800 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap">Live</button>
-                <button onclick="App.filter('Gadgets Tech')" class="chip bg-gray-100 text-gray-800 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap">Gadgets</button>
-                <button onclick="App.filter('Cooking')" class="chip bg-gray-100 text-gray-800 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap">Cooking</button>
-                <button onclick="App.filter('Motivation')" class="chip bg-gray-100 text-gray-800 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap">Motivation</button>
-            </div>
-
-            <!-- Shorts Shelf (Horizontal) -->
-            <div class="mt-6 px-4">
-                <div class="flex items-center gap-2 mb-4">
-                    <i class="fas fa-bolt text-red-600 text-xl"></i>
-                    <h2 class="text-lg font-bold text-gray-900">Shorts</h2>
-                </div>
-                <div id="shorts-container" class="flex gap-4 overflow-x-auto pb-4 hide-scroll">
-                    <!-- Shorts injected via JS -->
-                </div>
-            </div>
-
-            <hr class="border-gray-100 my-2">
-
-            <!-- Video Grid -->
-            <div id="video-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-8 p-4">
-                <!-- Videos injected via JS -->
-            </div>
-
-            <!-- Infinite Scroll Loader -->
-            <div id="loader" class="flex flex-col items-center justify-center py-10 opacity-0">
-                <div class="w-10 h-10 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin"></div>
-            </div>
-            
-            <div class="h-20"></div> <!-- Spacer -->
-        </main>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="header">
+    <div class="header-left">
+      <button id="menu-btn" class="icon-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar"></button>
+      <button id="logo-btn" class="logo-btn" type="button" aria-label="VidTube home">
+        <span class="logo-mark" aria-hidden="true"></span>
+        <span class="logo-word">VidTube</span>
+      </button>
     </div>
-
-    <!-- =========================================
-         PLAYER MODAL (OVERLAY)
-    ========================================== -->
-    <div id="player-modal" class="fixed inset-0 bg-white z-[60] hidden overflow-y-auto">
-        <!-- Player Navbar -->
-        <div class="sticky top-0 bg-white border-b px-4 h-14 flex items-center gap-4 z-50">
-            <button onclick="App.closePlayer()" class="p-2 hover:bg-gray-100 rounded-full transition"><i class="fas fa-arrow-left text-xl"></i></button>
-            <div class="font-bold text-lg truncate flex-1" id="m-header">Playing Video</div>
-        </div>
-
-        <div class="max-w-[1700px] mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Left: Main Player -->
-            <div class="lg:col-span-2">
-                <!-- Video Container -->
-                <div class="w-full aspect-video bg-black rounded-xl overflow-hidden shadow-lg relative group">
-                    <iframe id="main-iframe" class="w-full h-full" frameborder="0" allow="autoplay; fullscreen" allowfullscreen></iframe>
-                </div>
-
-                <!-- Info -->
-                <h1 id="m-title" class="text-xl font-bold mt-4 text-gray-900 leading-snug">Video Title Goes Here</h1>
-                
-                <!-- Action Bar -->
-                <div class="flex flex-wrap items-center justify-between mt-3 pb-3 border-b border-gray-100 gap-4">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-lg" id="m-avatar">C</div>
-                        <div>
-                            <div class="font-bold text-sm text-gray-900 flex items-center gap-1">
-                                <span id="m-channel">Channel Name</span>
-                                <i class="fas fa-check-circle text-gray-500 text-xs"></i>
-                            </div>
-                            <div class="text-xs text-gray-500">1.2M subscribers</div>
-                        </div>
-                        <button id="sub-btn" onclick="App.handleSub()" class="ml-4 bg-black text-white px-5 py-2 rounded-full text-sm font-medium hover:bg-gray-800 transition">Subscribe</button>
-                    </div>
-
-                    <div class="player-actions flex items-center gap-2">
-                        <div class="flex bg-gray-100 rounded-full overflow-hidden">
-                            <button onclick="App.handleLike()" class="px-4 py-2 border-r border-gray-200 hover:bg-gray-200 flex items-center gap-2 font-medium text-sm">
-                                <i class="far fa-thumbs-up"></i> <span id="like-count">12K</span>
-                            </button>
-                            <button class="px-4 py-2 hover:bg-gray-200 border-l border-white"><i class="far fa-thumbs-down"></i></button>
-                        </div>
-                        <button class="bg-gray-100 px-4 py-2 rounded-full font-medium text-sm flex items-center gap-2 hover:bg-gray-200">
-                            <i class="fas fa-share"></i> Share
-                        </button>
-                        <button class="bg-gray-100 w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-200">
-                            <i class="fas fa-ellipsis-h"></i>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Description Box -->
-                <div class="mt-4 bg-gray-100 p-3 rounded-xl cursor-pointer hover:bg-gray-200 transition">
-                    <div class="text-sm font-bold mb-1 flex gap-2">
-                        <span id="m-views">0 views</span> • <span id="m-date">Just now</span>
-                    </div>
-                    <p class="text-sm text-gray-800 whitespace-pre-line leading-relaxed" id="m-desc">
-                        Video description loading...
-                    </p>
-                    <div class="mt-2 text-sm font-medium text-gray-600">Show less</div>
-                </div>
-
-                <!-- Comments Section (Mock) -->
-                <div class="mt-6">
-                    <div class="flex items-center gap-4 mb-4">
-                        <h3 class="font-bold text-xl">245 Comments</h3>
-                        <div class="flex items-center gap-1 text-sm font-medium text-gray-600 cursor-pointer"><i class="fas fa-sort-amount-down"></i> Sort by</div>
-                    </div>
-                    <!-- Add Comment -->
-                    <div class="flex gap-4 mb-6">
-                        <div class="w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold">U</div>
-                        <div class="flex-1">
-                            <input type="text" class="w-full border-b border-gray-300 py-1 outline-none focus:border-black transition bg-transparent text-sm placeholder-gray-500" placeholder="Add a comment...">
-                            <div class="flex justify-end gap-3 mt-2">
-                                <button class="text-sm font-medium text-gray-600 hover:text-gray-800">Cancel</button>
-                                <button class="bg-gray-200 text-gray-500 px-4 py-1.5 rounded-full text-sm font-medium" disabled>Comment</button>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Mock Comments -->
-                    <div id="comments-list" class="space-y-4">
-                        <!-- Injected via JS -->
-                    </div>
-                </div>
-            </div>
-
-            <!-- Right: Recommendations -->
-            <div class="lg:col-span-1">
-                <div class="flex gap-2 mb-4 overflow-x-auto hide-scroll">
-                    <button class="bg-black text-white px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">All</button>
-                    <button class="bg-gray-100 text-gray-800 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">From Channel</button>
-                    <button class="bg-gray-100 text-gray-800 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">Related</button>
-                </div>
-                <div id="rec-list" class="flex flex-col gap-3">
-                    <!-- Recs Injected -->
-                </div>
-            </div>
-        </div>
+    <form id="search-form" class="search" role="search">
+      <div class="search-field">
+        <input id="search-input" type="search" name="q" maxlength="120" placeholder="Search videos" autocomplete="off" enterkeyhint="search" aria-label="Search videos">
+        <button id="search-clear" class="icon-btn" type="button" aria-label="Clear search" hidden></button>
+      </div>
+      <button class="search-submit" type="submit" aria-label="Search">
+        <span class="sr-label" hidden>Search</span>
+      </button>
+      <button id="mic-btn" class="mic-btn" type="button" aria-label="Voice search" hidden></button>
+    </form>
+    <div class="header-right">
+      <button id="ai-launch" class="ai-launch" type="button" aria-expanded="false" aria-controls="ai-panel">Ask AI</button>
     </div>
+  </header>
 
-    <!-- =========================================
-         AI CHAT WIDGET
-    ========================================== -->
-    <div id="ai-widget" class="fixed bottom-20 right-6 w-[360px] h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-200 z-[9000] flex flex-col overflow-hidden opacity-0 translate-y-10 pointer-events-none">
-        <!-- Header -->
-        <div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 flex justify-between items-center text-white">
-            <div class="flex items-center gap-2 font-bold">
-                <i class="fas fa-robot text-lg"></i> AI Assistant
-            </div>
-            <div class="flex items-center gap-3">
-                <i class="fas fa-expand-alt cursor-pointer opacity-80 hover:opacity-100"></i>
-                <i class="fas fa-times cursor-pointer opacity-80 hover:opacity-100" onclick="App.toggleAI()"></i>
-            </div>
-        </div>
-        
-        <!-- Messages Area -->
-        <div id="ai-messages" class="flex-1 bg-gray-50 p-4 overflow-y-auto space-y-3">
-            <div class="message-bubble bg-white border border-gray-200 p-3 rounded-2xl rounded-tl-none text-sm text-gray-700 shadow-sm max-w-[85%]">
-                Hello! I am your video assistant. Ask me to find videos, summarize trends, or suggest music!
-            </div>
-        </div>
+  <div class="shell">
+    <aside id="sidebar" class="sidebar" aria-label="Library">
+      <nav id="side-primary"></nav>
+      <hr class="side-divider">
+      <div class="side-label">Explore</div>
+      <nav id="side-explore"></nav>
+      <hr class="side-divider">
+      <div class="lang-wrap">
+        <label for="language">Declared language</label>
+        <select id="language"></select>
+      </div>
+      <div class="sidebar-foot">
+        <p>Videos are played from Dailymotion. VidTube does not host files or invent view counts.</p>
+        <p>Follows, saves, and history stay on this device.</p>
+        <p class="credit">© 2026 VidTube · Arvind Bishnoi</p>
+      </div>
+    </aside>
+    <div id="backdrop" class="backdrop" hidden></div>
 
-        <!-- Input Area -->
-        <div class="p-3 bg-white border-t flex items-center gap-2">
-            <input type="text" id="ai-input" class="flex-1 bg-gray-100 rounded-full px-4 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-500 transition" placeholder="Ask anything...">
-            <button onclick="App.sendAIMessage()" class="w-9 h-9 bg-blue-600 text-white rounded-full flex items-center justify-center hover:bg-blue-700 transition shadow-sm transform active:scale-95">
-                <i class="fas fa-paper-plane text-xs"></i>
-            </button>
+    <main id="main" class="main">
+      <div id="chips" class="chips" role="tablist" aria-label="Categories"></div>
+
+      <section id="shorts-section" class="section" aria-labelledby="shorts-heading">
+        <div class="section-head">
+          <div>
+            <h2 id="shorts-heading" class="section-title">Shorts</h2>
+            <p class="section-note">Portrait videos up to 60 seconds. Landscape thumbnails are not used as shorts.</p>
+          </div>
         </div>
+        <div id="shorts-row" class="shorts-row"></div>
+        <div id="shorts-panel"></div>
+      </section>
+
+      <section class="feed" aria-labelledby="feed-title">
+        <div class="feed-head">
+          <div>
+            <h1 id="feed-title">Trending</h1>
+            <p id="feed-subtitle"></p>
+          </div>
+        </div>
+        <div id="feed-live" class="sr-only" role="status" aria-live="polite"></div>
+        <div id="video-grid" class="grid"></div>
+        <div id="feed-panel"></div>
+        <div id="feed-sentinel" class="feed-sentinel" aria-hidden="true"></div>
+        <div id="loader" class="loader" hidden><div class="spinner" aria-hidden="true"></div><span class="sr-only">Loading videos</span></div>
+        <div class="actions" style="justify-content:center;margin-bottom:12px">
+          <button id="load-more" class="ghost-btn" type="button" hidden>Load more</button>
+        </div>
+        <p id="feed-end" class="end-note" hidden></p>
+      </section>
+    </main>
+  </div>
+
+  <div id="player-modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="player-title">
+    <div class="modal-bar">
+      <button id="player-close" class="icon-btn" type="button" aria-label="Close player"></button>
+      <h2 id="player-heading">Video</h2>
     </div>
+    <div class="player-layout">
+      <div>
+        <div class="player-frame">
+          <div id="player-slot"></div>
+          <div id="player-status" class="player-status" hidden></div>
+        </div>
+        <h1 id="player-title" class="player-title"></h1>
+        <div class="channel-row">
+          <div class="channel-id">
+            <div id="player-avatar"></div>
+            <div>
+              <strong id="player-channel"></strong>
+              <p id="player-followers"></p>
+            </div>
+            <span id="player-verified" class="notice" hidden>Verified</span>
+          </div>
+          <button id="follow-btn" class="primary-btn" type="button">Follow</button>
+        </div>
+        <div class="player-actions">
+          <button id="like-btn" class="ghost-btn" type="button" title="Saved only on this device">Save</button>
+          <button id="later-btn" class="ghost-btn" type="button">Watch later</button>
+          <button id="share-btn" class="ghost-btn" type="button">Share</button>
+          <a id="dm-link" class="ghost-btn" href="https://www.dailymotion.com" target="_blank" rel="noopener noreferrer">Watch on Dailymotion</a>
+        </div>
+        <div class="description">
+          <div id="player-stats" class="stats"></div>
+          <p id="player-description"></p>
+          <button id="desc-more" class="ghost-btn" type="button" hidden>Show more</button>
+        </div>
+        <section class="comments" aria-labelledby="comments-heading">
+          <h3 id="comments-heading">Comments</h3>
+          <p class="notice">Comments are read from Dailymotion when the API returns them. Posting is not available here.</p>
+          <div id="comments-list"></div>
+        </section>
+      </div>
+      <aside>
+        <div id="rec-tabs" class="rec-tabs" role="tablist" aria-label="Recommendations"></div>
+        <p id="rec-note" class="rec-note"></p>
+        <div id="rec-list"></div>
+      </aside>
+    </div>
+  </div>
 
-    <!-- Floating AI Button -->
-    <button onclick="App.toggleAI()" class="fixed bottom-6 right-6 w-14 h-14 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-full shadow-lg hover:shadow-2xl flex items-center justify-center text-2xl hover:scale-110 transition z-[8000]">
-        <i class="fas fa-sparkles"></i>
-    </button>
+  <div id="shorts-modal" class="shorts-modal" hidden role="dialog" aria-modal="true" aria-labelledby="shorts-title">
+    <button id="shorts-close" class="shorts-close" type="button" aria-label="Close shorts"></button>
+    <button id="shorts-prev" class="shorts-nav" type="button" aria-label="Previous short"></button>
+    <div class="shorts-stage">
+      <div id="shorts-slot" class="shorts-slot"></div>
+      <div id="shorts-status" class="shorts-status" hidden></div>
+      <div class="shorts-meta">
+        <strong id="shorts-title"></strong>
+        <span id="shorts-by"></span>
+      </div>
+    </div>
+    <button id="shorts-next" class="shorts-nav" type="button" aria-label="Next short"></button>
+  </div>
 
-    <!-- Toast Container -->
-    <div id="toast-container"></div>
-
-    <!-- =========================================
-         JAVASCRIPT LOGIC
-    ========================================== -->
-    <script>
-        class Application {
-            constructor() {
-                this.init();
-            }
-
-            async init() {
-                this.renderSkeleton();
-                this.renderShortsPlaceholder();
-                this.setupEventListeners();
-                
-                // Initial Load
-                await this.fetchVideos(true);
-                
-                // Infinite Scroll Observer
-                this.observer = new IntersectionObserver((entries) => {
-                    if(entries[0].isIntersecting && !Store.isLoading) {
-                        this.fetchVideos();
-                    }
-                }, { threshold: 0.5 });
-                this.observer.observe(document.getElementById('loader'));
-            }
-
-            // --- API Logic ---
-            async fetchVideos(isNew = false) {
-                if(Store.isLoading) return;
-                Store.isLoading = true;
-                
-                const loader = document.getElementById('loader');
-                if(!isNew) loader.style.opacity = "1";
-
-                if(isNew) {
-                    Store.page = 1;
-                    document.getElementById('video-grid').innerHTML = "";
-                    this.renderSkeleton(); // Show shimmer on new search
-                }
-
-                try {
-                    const params = new URLSearchParams({
-                        fields: 'id,thumbnail_720_url,title,owner.screenname,views_total,duration,created_time,description',
-                        limit: AppConfig.itemsPerPage,
-                        page: Store.page,
-                        search: Store.query
-                    });
-
-                    const response = await fetch(`${AppConfig.videoApi}?${params}`);
-                    const data = await response.json();
-
-                    // Remove Skeletons if page 1
-                    if(isNew) document.getElementById('video-grid').innerHTML = "";
-
-                    if(data.list) {
-                        this.renderVideos(data.list);
-                        if(isNew) this.generateShorts(data.list); // Generate fake shorts from data
-                        Store.page++;
-                    }
-                } catch (error) {
-                    this.showToast("Error loading videos. Check connection.", "error");
-                    console.error(error);
-                } finally {
-                    Store.isLoading = false;
-                    loader.style.opacity = "0";
-                }
-            }
-
-            // --- UI Rendering ---
-            renderSkeleton() {
-                const grid = document.getElementById('video-grid');
-                const tpl = `
-                    <div class="flex flex-col gap-3">
-                        <div class="skeleton w-full aspect-video rounded-xl"></div>
-                        <div class="flex gap-3">
-                            <div class="skeleton w-10 h-10 rounded-full flex-shrink-0"></div>
-                            <div class="w-full space-y-2">
-                                <div class="skeleton h-4 w-3/4 rounded"></div>
-                                <div class="skeleton h-3 w-1/2 rounded"></div>
-                            </div>
-                        </div>
-                    </div>`;
-                // Add 8 skeletons
-                grid.innerHTML = Array(8).fill(tpl).join('');
-            }
-
-            renderVideos(list) {
-                const grid = document.getElementById('video-grid');
-                
-                list.forEach(video => {
-                    const views = this.formatViews(video.views_total);
-                    const time = this.formatDuration(video.duration);
-                    const timeAgo = this.getRandomTimeAgo(); // Mocking since API time is static sometimes
-                    const avatarColor = this.getRandomColor();
-                    const isWatched = Store.watched[video.id] ? `style="width: ${Store.watched[video.id]}%"` : 'style="width: 0%"';
-                    
-                    const card = document.createElement('div');
-                    card.className = "video-card flex flex-col gap-3 cursor-pointer group";
-                    card.onclick = () => this.openPlayer(video);
-
-                    card.innerHTML = `
-                        <div class="relative w-full aspect-video rounded-xl overflow-hidden bg-gray-200 shadow-sm group-hover:shadow-md transition">
-                            <img src="${video.thumbnail_720_url}" class="thumbnail w-full h-full object-cover">
-                            <div class="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1.5 py-0.5 rounded font-medium">${time}</div>
-                            <!-- Red Line -->
-                            <div class="progress-bar-bg"><div class="progress-fill" ${isWatched}></div></div>
-                        </div>
-                        <div class="flex gap-3 px-1">
-                            <div class="w-9 h-9 rounded-full ${avatarColor} text-white flex items-center justify-center font-bold text-sm uppercase flex-shrink-0">
-                                ${video['owner.screenname'].charAt(0)}
-                            </div>
-                            <div class="flex flex-col flex-1">
-                                <h3 class="font-bold text-sm text-gray-900 line-clamp-2 leading-tight group-hover:text-blue-600 transition" title="${video.title}">${video.title}</h3>
-                                <div class="text-xs text-gray-500 mt-1 flex items-center gap-1 hover:text-gray-700">
-                                    ${video['owner.screenname']} <i class="fas fa-check-circle text-gray-400 text-[10px]"></i>
-                                </div>
-                                <div class="text-xs text-gray-500">${views} views • ${timeAgo}</div>
-                            </div>
-                            <div class="opacity-0 group-hover:opacity-100 transition">
-                                <i class="fas fa-ellipsis-v text-gray-600 text-xs p-1"></i>
-                            </div>
-                        </div>
-                    `;
-                    grid.appendChild(card);
-                });
-            }
-
-            renderShortsPlaceholder() {
-                const container = document.getElementById('shorts-container');
-                // Creating skeletons for shorts
-                container.innerHTML = Array(6).fill(`
-                    <div class="skeleton min-w-[160px] h-[280px] rounded-xl flex-shrink-0"></div>
-                `).join('');
-            }
-
-            generateShorts(videoList) {
-                const container = document.getElementById('shorts-container');
-                container.innerHTML = ""; // Clear skeletons
-                
-                // Use the fetched videos to create "Shorts" visuals (cropping them)
-                videoList.slice(0, 8).forEach(v => {
-                    const div = document.createElement('div');
-                    div.className = "min-w-[160px] h-[280px] rounded-xl overflow-hidden relative cursor-pointer flex-shrink-0 group";
-                    div.onclick = () => this.showToast("Shorts Player opening...", "info");
-                    
-                    div.innerHTML = `
-                        <img src="${v.thumbnail_720_url}" class="w-full h-full object-cover transform group-hover:scale-105 transition duration-500">
-                        <div class="absolute inset-0 bg-gradient-to-b from-transparent to-black/60"></div>
-                        <div class="absolute bottom-3 left-3 right-3 text-white">
-                            <div class="font-bold text-sm line-clamp-2 leading-tight mb-1">${v.title}</div>
-                            <div class="text-xs font-medium opacity-90">${this.formatViews(v.views_total)} views</div>
-                        </div>
-                        <div class="absolute top-2 right-2 text-white opacity-0 group-hover:opacity-100 transition"><i class="fas fa-ellipsis-v shadow-md"></i></div>
-                    `;
-                    container.appendChild(div);
-                });
-            }
-
-            // --- Player Logic ---
-            openPlayer(video) {
-                // Update History (Red Line Logic)
-                Store.saveWatched(video.id, Math.floor(Math.random() * 80) + 10); // Mock progress save
-                
-                // Fill Data
-                document.getElementById('m-title').innerText = video.title;
-                document.getElementById('m-header').innerText = video.title;
-                document.getElementById('m-channel').innerText = video['owner.screenname'];
-                document.getElementById('m-avatar').innerText = video['owner.screenname'].charAt(0);
-                document.getElementById('m-desc').innerText = video.description || "No description available for this video.";
-                document.getElementById('m-views').innerText = this.formatViews(video.views_total) + " views";
-                document.getElementById('main-iframe').src = `https://www.dailymotion.com/embed/video/${video.id}?autoplay=1`;
-                
-                // Subscription State
-                this.updateSubBtn(video['owner.screenname']);
-
-                // Generate Mock Comments
-                this.renderMockComments();
-
-                // Generate Recommendations
-                this.fetchRecommendations(video.title);
-
-                // Show Modal
-                document.getElementById('player-modal').classList.remove('hidden');
-                document.body.style.overflow = 'hidden';
-            }
-
-            closePlayer() {
-                document.getElementById('player-modal').classList.add('hidden');
-                document.getElementById('main-iframe').src = "";
-                document.body.style.overflow = 'auto';
-                // Refresh grid to show new red lines
-                const currentScroll = window.scrollY;
-                // Ideally update DOM directly, but refreshing grid for demo
-            }
-
-            async fetchRecommendations(title) {
-                const list = document.getElementById('rec-list');
-                list.innerHTML = `<div class="p-4 text-center text-gray-500"><i class="fas fa-circle-notch fa-spin"></i> Loading...</div>`;
-                
-                try {
-                    const res = await fetch(`${AppConfig.videoApi}?fields=id,thumbnail_720_url,title,owner.screenname,views_total,duration&limit=10&search=${encodeURIComponent(title)}`);
-                    const data = await res.json();
-                    list.innerHTML = "";
-                    
-                    data.list.forEach(v => {
-                        const div = document.createElement('div');
-                        div.className = "flex gap-2 cursor-pointer hover:bg-gray-100 p-2 rounded-lg transition group";
-                        div.onclick = () => this.openPlayer(v);
-                        div.innerHTML = `
-                            <div class="relative w-40 h-24 rounded-lg overflow-hidden flex-shrink-0 bg-gray-200">
-                                <img src="${v.thumbnail_720_url}" class="w-full h-full object-cover">
-                                <span class="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1 rounded">${this.formatDuration(v.duration)}</span>
-                            </div>
-                            <div class="flex flex-col gap-1 py-1">
-                                <h4 class="text-sm font-bold line-clamp-2 leading-tight text-gray-900 group-hover:text-blue-600">${v.title}</h4>
-                                <p class="text-xs text-gray-500">${v['owner.screenname']}</p>
-                                <p class="text-xs text-gray-500">${this.formatViews(v.views_total)} views</p>
-                            </div>
-                        `;
-                        list.appendChild(div);
-                    });
-                } catch(e) {
-                    list.innerHTML = `<div class="p-2 text-sm text-red-500">Failed to load recommendations.</div>`;
-                }
-            }
-
-            renderMockComments() {
-                const list = document.getElementById('comments-list');
-                const comments = [
-                    "This video is amazing! 🔥", "Love the quality, keep it up.", "Can you make a tutorial on this?", 
-                    "First comment!", "Underated channel.", "Watching from India 🇮🇳", "Absolutely stunning visuals.",
-                    "The editing is on another level.", "I learned so much today.", "Funny part at 2:30 😂"
-                ];
-                
-                list.innerHTML = comments.map(c => `
-                    <div class="flex gap-3">
-                        <div class="w-10 h-10 rounded-full ${this.getRandomColor()} text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
-                            ${String.fromCharCode(65 + Math.floor(Math.random() * 26))}
-                        </div>
-                        <div>
-                            <div class="flex items-center gap-2">
-                                <span class="text-xs font-bold text-gray-900">User ${Math.floor(Math.random()*1000)}</span>
-                                <span class="text-xs text-gray-500">2 hours ago</span>
-                            </div>
-                            <p class="text-sm text-gray-800 mt-0.5">${c}</p>
-                            <div class="flex items-center gap-4 mt-1 text-gray-500 text-xs font-bold">
-                                <span class="cursor-pointer hover:text-black"><i class="far fa-thumbs-up"></i> ${Math.floor(Math.random()*500)}</span>
-                                <span class="cursor-pointer hover:text-black"><i class="far fa-thumbs-down"></i></span>
-                                <span class="cursor-pointer hover:text-black">Reply</span>
-                            </div>
-                        </div>
-                    </div>
-                `).join('');
-            }
-
-            // --- AI Interaction ---
-            toggleAI() {
-                const widget = document.getElementById('ai-widget');
-                const isHidden = widget.classList.contains('opacity-0');
-                
-                if(isHidden) {
-                    widget.classList.remove('opacity-0', 'translate-y-10', 'pointer-events-none');
-                    document.getElementById('ai-input').focus();
-                } else {
-                    widget.classList.add('opacity-0', 'translate-y-10', 'pointer-events-none');
-                }
-            }
-
-            async sendAIMessage() {
-                const input = document.getElementById('ai-input');
-                const msgBox = document.getElementById('ai-messages');
-                const text = input.value.trim();
-                
-                if(!text) return;
-
-                // User Msg
-                msgBox.innerHTML += `
-                    <div class="message-bubble bg-blue-600 text-white p-3 rounded-2xl rounded-tr-none self-end ml-auto max-w-[85%] text-sm shadow-sm text-right mb-2">
-                        ${text}
-                    </div>
-                `;
-                input.value = "";
-                msgBox.scrollTop = msgBox.scrollHeight;
-
-                // Deep Search Check
-                if(text.toLowerCase().includes('search') || text.toLowerCase().includes('play')) {
-                    const query = text.replace(/search|play|find/gi, "").trim();
-                    this.filter(query);
-                    msgBox.innerHTML += `<div class="text-xs text-center text-gray-400 mb-2">Searching App for "${query}"...</div>`;
-                    return;
-                }
-
-                // AI Indicator
-                const loaderId = "ai-load-" + Date.now();
-                msgBox.innerHTML += `<div id="${loaderId}" class="text-gray-400 text-xs ml-2 mb-2 flex items-center gap-1"><i class="fas fa-circle-notch fa-spin"></i> Thinking...</div>`;
-                msgBox.scrollTop = msgBox.scrollHeight;
-
-                try {
-                    // AI को अरविंद बिश्नोई (आपका नाम) सिखाया गया है
-                    const res = await fetch(AppConfig.aiHost, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${AppConfig.apiKey}`
-                        },
-                        body: JSON.stringify({
-                            model: "gpt-3.5-turbo",
-                            messages: [
-                                {
-                                    role: "system", 
-                                    content: "You are StreamHub AI. Be helpful, concise and fun. Use emojis. If anyone asks 'who created you', 'who made this website', 'who is your creator', or similar questions, you must strictly answer 'I was created by Arvind Dara bishnoi'."
-                                },
-                                {role: "user", content: text}
-                            ]
-                        })
-                    });
-
-                    const data = await res.json();
-                    document.getElementById(loaderId).remove();
-
-                    if(data.choices) {
-                        const reply = data.choices[0].message.content;
-                        this.typewriterEffect(reply, msgBox);
-                    } else {
-                        throw new Error("No response");
-                    }
-
-                } catch(e) {
-                    document.getElementById(loaderId).innerText = "AI is currently offline.";
-                }
-            }
-
-            typewriterEffect(text, container) {
-                const div = document.createElement('div');
-                div.className = "message-bubble bg-white border border-gray-200 p-3 rounded-2xl rounded-tl-none text-sm text-gray-700 shadow-sm max-w-[85%] mb-2";
-                container.appendChild(div);
-                
-                let i = 0;
-                const speed = 10;
-                function type() {
-                    if (i < text.length) {
-                        div.innerHTML += text.charAt(i);
-                        i++;
-                        container.scrollTop = container.scrollHeight;
-                        setTimeout(type, speed);
-                    }
-                }
-                type();
-            }
-
-            // --- Interactions & Utils ---
-            filter(query) {
-                Store.query = query;
-                this.fetchVideos(true);
-                // Update active chip
-                document.querySelectorAll('.chip').forEach(c => {
-                    c.classList.remove('active', 'bg-black', 'text-white');
-                    c.classList.add('bg-gray-100', 'text-gray-800');
-                    if(c.innerText.toLowerCase().includes(query.split(' ')[0].toLowerCase()) || (query === 'Trending' && c.innerText === 'All')) {
-                        c.classList.add('active', 'bg-black', 'text-white');
-                        c.classList.remove('bg-gray-100', 'text-gray-800');
-                    }
-                });
-            }
-
-            handleSub() {
-                const channel = document.getElementById('m-channel').innerText;
-                const isSubbed = Store.toggleSub(channel);
-                this.updateSubBtn(channel);
-                this.showToast(isSubbed ? `Subscribed to ${channel}` : `Unsubscribed from ${channel}`, isSubbed ? "success" : "info");
-            }
-
-            updateSubBtn(channel) {
-                const btn = document.getElementById('sub-btn');
-                if(Store.subs.includes(channel)) {
-                    btn.innerText = "Subscribed";
-                    btn.className = "ml-4 bg-gray-200 text-gray-700 px-5 py-2 rounded-full text-sm font-medium hover:bg-gray-300 transition";
-                } else {
-                    btn.innerText = "Subscribe";
-                    btn.className = "ml-4 bg-black text-white px-5 py-2 rounded-full text-sm font-medium hover:bg-gray-800 transition";
-                }
-            }
-
-            handleLike() {
-                // Mock ID for current video context
-                const isLiked = Store.toggleLike("current_video");
-                this.showToast(isLiked ? "Added to Liked Videos" : "Removed from Liked Videos", "info");
-            }
-
-            showToast(msg, type = "info") {
-                const container = document.getElementById('toast-container');
-                const toast = document.createElement('div');
-                toast.className = "toast";
-                toast.innerHTML = type === "success" ? `<i class="fas fa-check-circle text-green-400 mr-2"></i> ${msg}` : `<i class="fas fa-info-circle text-blue-400 mr-2"></i> ${msg}`;
-                container.appendChild(toast);
-                setTimeout(() => {
-                    toast.style.animation = "slideOut 0.3s ease-in forwards";
-                    setTimeout(() => toast.remove(), 300);
-                }, 3000);
-            }
-
-            setupEventListeners() {
-                // Search on Enter
-                document.getElementById('search-input').addEventListener('keypress', (e) => {
-                    if(e.key === 'Enter') {
-                        Store.query = e.target.value;
-                        this.fetchVideos(true);
-                    }
-                });
-                
-                document.getElementById('search-btn').onclick = () => {
-                    Store.query = document.getElementById('search-input').value;
-                    this.fetchVideos(true);
-                };
-
-                // AI Enter
-                document.getElementById('ai-input').addEventListener('keypress', (e) => {
-                    if(e.key === 'Enter') this.sendAIMessage();
-                });
-
-                // Menu Toggle
-                document.getElementById('menu-btn').onclick = () => {
-                    const sb = document.getElementById('sidebar');
-                    sb.classList.toggle('hidden');
-                };
-            }
-
-            // Helpers
-            formatViews(n) {
-                if(!n) return "0";
-                if(n >= 1000000) return (n/1000000).toFixed(1) + 'M';
-                if(n >= 1000) return (n/1000).toFixed(1) + 'K';
-                return n;
-            }
-            formatDuration(s) {
-                if(!s) return "4:20";
-                const m = Math.floor(s/60);
-                const sec = s%60;
-                return `${m}:${sec<10?'0':''}${sec}`;
-            }
-            getRandomColor() {
-                const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-indigo-500', 'bg-pink-500'];
-                return colors[Math.floor(Math.random() * colors.length)];
-            }
-            getRandomTimeAgo() {
-                const times = ["2 hours ago", "1 day ago", "3 days ago", "1 week ago", "Just now", "5 hours ago"];
-                return times[Math.floor(Math.random() * times.length)];
-            }
-            reset() {
-                location.reload();
-            }
-        }
-
-        // --- Start Application ---
-        const App = new Application();
-    </script>
+  <section id="ai-panel" class="ai-panel" hidden aria-labelledby="ai-title">
+    <div class="ai-head">
+      <strong id="ai-title">AI assistant</strong>
+      <button id="ai-close" class="icon-btn" type="button" aria-label="Close assistant" style="color:#fff"></button>
+    </div>
+    <div id="ai-log" class="ai-log" aria-live="polite"></div>
+    <form id="ai-form" class="ai-form">
+      <input id="ai-input" type="text" maxlength="2000" placeholder="Ask, or type “search jazz”" autocomplete="off" aria-label="Message the assistant">
+      <button class="icon-btn" type="submit" aria-label="Send" style="background:#1d4ed8;color:#fff"></button>
+    </form>
+  </section>
+  <button id="ai-fab" class="ai-fab" type="button" aria-label="Open AI assistant" aria-expanded="false" aria-controls="ai-panel"></button>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script type="module">
+    import("./js/app.js").catch((error) => {
+      const note = document.createElement("p");
+      note.textContent = "VidTube failed to start. " + (error && error.message ? error.message : "Reload the page.");
+      note.style.cssText = "margin:72px 16px;font-family:sans-serif";
+      document.body.prepend(note);
+    });
+  </script>
 </body>
 </html>

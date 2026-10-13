@@ -1,0 +1,11 @@
+name = "vidtube-ai-proxy"
+main = "worker/ai-proxy.js"
+compatibility_date = "2026-01-15"
+
+# Public, non-secret defaults. Set the key with:
+#   npx wrangler secret put AI_API_KEY
+#   npx wrangler secret put AI_API_BASE
+[vars]
+AI_MODEL = "gpt-4o-mini"
+ALLOWED_ORIGINS = "https://bishnoibrand.github.io,http://localhost:8080,http://127.0.0.1:8080"
+RATE_LIMIT_PER_MINUTE = "8"

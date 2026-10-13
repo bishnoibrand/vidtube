@@ -1,0 +1,14 @@
+{
+  "name": "vidtube",
+  "private": true,
+  "type": "module",
+  "description": "VidTube — video discovery on Dailymotion's public API",
+  "scripts": {
+    "test": "node --test tests/*.js",
+    "start": "node server/static.mjs",
+    "ai-proxy": "node server/ai-proxy.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
