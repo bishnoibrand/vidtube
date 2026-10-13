@@ -101,50 +101,51 @@
     ========================================== -->
     <script>
         const AppConfig = {
-            apiKey: "sk-I7liW57oWSJBRFaa1yLr0v9nYOh5PZJb9NAInR22LwbYhEon",
-            aiHost: "https://api.chatanywhere.tech/v1/chat/completions",
+            // AI is proxied server-side. Never store provider credentials in browser JavaScript.
+            aiHost: window.VIDTUBE_AI_ENDPOINT || "/api/ai/chat",
             videoApi: "https://api.dailymotion.com/videos",
             itemsPerPage: 20
         };
 
-        // हर बार रिफ्रेश करने पर रैंडम टॉपिक्स की लिस्ट
-        const randomTopics = [
-            "latest trending", "viral videos", "music hits India", 
-            "gaming highlights", "comedy shorts", "tech gadgets", 
-            "news today", "sports moments", "cooking hacks", 
-            "bollywood updates", "cricket highlights", "motivation hindi"
-        ];
-        const randomInitialQuery = randomTopics[Math.floor(Math.random() * randomTopics.length)];
+        function readStorage(key, fallback) {
+            try {
+                const raw = localStorage.getItem(key);
+                return raw ? JSON.parse(raw) : fallback;
+            } catch (error) {
+                return fallback;
+            }
+        }
 
-        // Centralized State Management
         const Store = {
             videos: [],
             shorts: [],
             page: 1,
-            query: randomInitialQuery, // यहाँ रैंडम टॉपिक सेट किया गया है
+            query: "Trending",
             isLoading: false,
+            hasMore: true,
+            seenVideoIds: new Set(),
+            currentVideoId: null,
             isSidebarOpen: true,
-            watched: JSON.parse(localStorage.getItem('sh_watched')) || {},
-            liked: JSON.parse(localStorage.getItem('sh_liked')) || {},
-            subs: JSON.parse(localStorage.getItem('sh_subs')) || [],
-            
-            // Methods
+            watched: readStorage("sh_watched", {}),
+            liked: readStorage("sh_liked", {}),
+            subs: readStorage("sh_subs", []),
+
             saveWatched: (id, percent) => {
                 Store.watched[id] = percent;
-                localStorage.setItem('sh_watched', JSON.stringify(Store.watched));
+                try { localStorage.setItem("sh_watched", JSON.stringify(Store.watched)); } catch (error) {}
             },
             toggleLike: (id) => {
-                if(Store.liked[id]) delete Store.liked[id];
+                if (Store.liked[id]) delete Store.liked[id];
                 else Store.liked[id] = true;
-                localStorage.setItem('sh_liked', JSON.stringify(Store.liked));
+                try { localStorage.setItem("sh_liked", JSON.stringify(Store.liked)); } catch (error) {}
                 return !!Store.liked[id];
             },
             toggleSub: (channel) => {
                 const idx = Store.subs.indexOf(channel);
-                if(idx > -1) Store.subs.splice(idx, 1);
+                if (idx > -1) Store.subs.splice(idx, 1);
                 else Store.subs.push(channel);
-                localStorage.setItem('sh_subs', JSON.stringify(Store.subs));
-                return idx === -1; // true if subscribed
+                try { localStorage.setItem("sh_subs", JSON.stringify(Store.subs)); } catch (error) {}
+                return idx === -1;
             }
         };
     </script>
@@ -283,7 +284,7 @@
             </div>
 
             <!-- Shorts Shelf (Horizontal) -->
-            <div class="mt-6 px-4">
+            <div class="mt-6 px-4" id="shorts-section">
                 <div class="flex items-center gap-2 mb-4">
                     <i class="fas fa-bolt text-red-600 text-xl"></i>
                     <h2 class="text-lg font-bold text-gray-900">Shorts</h2>
@@ -339,7 +340,7 @@
                                 <span id="m-channel">Channel Name</span>
                                 <i class="fas fa-check-circle text-gray-500 text-xs"></i>
                             </div>
-                            <div class="text-xs text-gray-500">1.2M subscribers</div>
+                            <div class="text-xs text-gray-500">Channel statistics unavailable</div>
                         </div>
                         <button id="sub-btn" onclick="App.handleSub()" class="ml-4 bg-black text-white px-5 py-2 rounded-full text-sm font-medium hover:bg-gray-800 transition">Subscribe</button>
                     </div>
@@ -347,7 +348,7 @@
                     <div class="player-actions flex items-center gap-2">
                         <div class="flex bg-gray-100 rounded-full overflow-hidden">
                             <button onclick="App.handleLike()" class="px-4 py-2 border-r border-gray-200 hover:bg-gray-200 flex items-center gap-2 font-medium text-sm">
-                                <i class="far fa-thumbs-up"></i> <span id="like-count">12K</span>
+                                <i class="far fa-thumbs-up"></i> <span id="like-count">Like</span>
                             </button>
                             <button class="px-4 py-2 hover:bg-gray-200 border-l border-white"><i class="far fa-thumbs-down"></i></button>
                         </div>
@@ -374,7 +375,7 @@
                 <!-- Comments Section (Mock) -->
                 <div class="mt-6">
                     <div class="flex items-center gap-4 mb-4">
-                        <h3 class="font-bold text-xl">245 Comments</h3>
+                        <h3 class="font-bold text-xl">Comments</h3>
                         <div class="flex items-center gap-1 text-sm font-medium text-gray-600 cursor-pointer"><i class="fas fa-sort-amount-down"></i> Sort by</div>
                     </div>
                     <!-- Add Comment -->
@@ -467,7 +468,7 @@
                 
                 // Infinite Scroll Observer
                 this.observer = new IntersectionObserver((entries) => {
-                    if(entries[0].isIntersecting && !Store.isLoading) {
+                    if (entries[0].isIntersecting && !Store.isLoading && Store.hasMore) {
                         this.fetchVideos();
                     }
                 }, { threshold: 0.5 });
@@ -476,44 +477,156 @@
 
             // --- API Logic ---
             async fetchVideos(isNew = false) {
-                if(Store.isLoading) return;
-                Store.isLoading = true;
-                
-                const loader = document.getElementById('loader');
-                if(!isNew) loader.style.opacity = "1";
+                if (!isNew && (Store.isLoading || !Store.hasMore)) return;
+                if (isNew && this.videoRequestController) this.videoRequestController.abort();
 
-                if(isNew) {
+                this.videoRequestId = (this.videoRequestId || 0) + 1;
+                const requestId = this.videoRequestId;
+                const controller = new AbortController();
+                this.videoRequestController = controller;
+                Store.isLoading = true;
+
+                const loader = document.getElementById("loader");
+                const grid = document.getElementById("video-grid");
+                loader.style.opacity = "1";
+
+                if (isNew) {
                     Store.page = 1;
-                    document.getElementById('video-grid').innerHTML = "";
-                    this.renderSkeleton(); // Show shimmer on new search
+                    Store.hasMore = true;
+                    Store.videos = [];
+                    Store.seenVideoIds.clear();
+                    grid.innerHTML = "";
+                    this.renderSkeleton();
                 }
 
                 try {
+                    const query = String(Store.query || "").trim();
+                    const isTrending = !query || query.toLowerCase() === "trending";
                     const params = new URLSearchParams({
-                        fields: 'id,thumbnail_720_url,title,owner.screenname,views_total,duration,created_time,description',
-                        limit: AppConfig.itemsPerPage,
-                        page: Store.page,
-                        search: Store.query
+                        fields: "id,thumbnail_720_url,title,owner.screenname,views_total,duration,created_time,description,width,height",
+                        limit: String(AppConfig.itemsPerPage),
+                        page: String(Store.page),
+                        sort: isTrending ? "trending" : "relevance"
                     });
+                    if (!isTrending) params.set("search", query);
 
-                    const response = await fetch(`${AppConfig.videoApi}?${params}`);
+                    const response = await fetch(AppConfig.videoApi + "?" + params.toString(), {
+                        signal: controller.signal
+                    });
+                    if (!response.ok) throw new Error("Video provider returned HTTP " + response.status);
                     const data = await response.json();
+                    if (requestId !== this.videoRequestId) return;
+                    if (!Array.isArray(data.list)) throw new Error("Unexpected video API response");
 
-                    // Remove Skeletons if page 1
-                    if(isNew) document.getElementById('video-grid').innerHTML = "";
+                    let candidates = this.normalizeVideos(data.list);
+                    if (isTrending) candidates = this.rankTrending(candidates);
+                    const fresh = candidates.filter(video => !Store.seenVideoIds.has(String(video.id)));
+                    fresh.forEach(video => Store.seenVideoIds.add(String(video.id)));
 
-                    if(data.list) {
-                        this.renderVideos(data.list);
-                        if(isNew) this.generateShorts(data.list); // Generate fake shorts from data
-                        Store.page++;
+                    if (isNew) grid.innerHTML = "";
+                    if (fresh.length) {
+                        Store.videos.push(...fresh);
+                        this.renderVideos(fresh);
+                    } else if (isNew) {
+                        this.renderEmptyState("No suitable videos were returned. Try another search or category.");
+                    } else if (data.has_more === false || data.list.length === 0) {
+                        const state = document.createElement("p");
+                        state.className = "col-span-full text-center text-sm text-gray-500 py-8";
+                        state.textContent = "You have reached the end of this feed.";
+                        grid.appendChild(state);
                     }
+
+                    if (isNew) this.generateShorts(candidates);
+                    Store.hasMore = typeof data.has_more === "boolean"
+                        ? data.has_more
+                        : data.list.length >= AppConfig.itemsPerPage;
+                    if (data.list.length === 0) Store.hasMore = false;
+                    Store.page += 1;
                 } catch (error) {
-                    this.showToast("Error loading videos. Check connection.", "error");
-                    console.error(error);
+                    if (error.name !== "AbortError" && requestId === this.videoRequestId) {
+                        console.error("Video feed error:", error);
+                        if (isNew) {
+                            grid.innerHTML = "";
+                            this.renderEmptyState("Videos could not be loaded. Check your connection and try again.");
+                        }
+                        this.showToast("Could not load videos. Please try again.", "error");
+                    }
                 } finally {
-                    Store.isLoading = false;
-                    loader.style.opacity = "0";
+                    if (requestId === this.videoRequestId) {
+                        Store.isLoading = false;
+                        loader.style.opacity = "0";
+                    }
                 }
+            }
+
+            normalizeVideos(list) {
+                const output = [];
+                const ids = new Set();
+                for (const video of (Array.isArray(list) ? list : [])) {
+                    if (!video || video.id == null) continue;
+                    const id = String(video.id).trim();
+                    const title = String(video.title || "").trim();
+                    const thumbnail = this.safeImageUrl(video.thumbnail_720_url);
+                    if (!id || ids.has(id) || title.length < 4 || !thumbnail) continue;
+                    const duration = Number(video.duration);
+                    const views = Number(video.views_total);
+                    ids.add(id);
+                    output.push({
+                        ...video,
+                        id,
+                        title,
+                        thumbnail_720_url: thumbnail,
+                        duration: Number.isFinite(duration) && duration >= 0 ? duration : null,
+                        views_total: Number.isFinite(views) && views >= 0 ? views : 0,
+                        "owner.screenname": String(video["owner.screenname"] || "Unknown channel")
+                    });
+                }
+                return output;
+            }
+
+            rankTrending(videos) {
+                const now = Date.now() / 1000;
+                return videos.map((video, index) => {
+                    const providerRank = videos.length > 1 ? 1 - (index / (videos.length - 1)) : 1;
+                    const views = Math.log1p(Math.max(0, Number(video.views_total) || 0)) / Math.log1p(10000000);
+                    const timestamp = Number(video.created_time);
+                    const ageDays = Number.isFinite(timestamp) && timestamp > 0
+                        ? Math.max(0, (now - timestamp) / 86400)
+                        : null;
+                    const recency = ageDays === null ? 0.35 : Math.exp(-ageDays / 45);
+                    const completeness = (video.description ? 0.5 : 0) +
+                        (video.duration !== null ? 0.25 : 0) +
+                        (video["owner.screenname"] !== "Unknown channel" ? 0.25 : 0);
+                    return {
+                        video,
+                        score: providerRank * 0.55 + Math.min(1, views) * 0.2 + recency * 0.15 + completeness * 0.1,
+                        index
+                    };
+                }).sort((a, b) => b.score - a.score || a.index - b.index).map(item => item.video);
+            }
+
+            renderEmptyState(message) {
+                const grid = document.getElementById("video-grid");
+                grid.innerHTML = "";
+                const state = document.createElement("div");
+                state.className = "col-span-full rounded-xl border border-gray-200 bg-gray-50 px-6 py-12 text-center text-sm text-gray-600";
+                state.textContent = message;
+                grid.appendChild(state);
+            }
+
+            safeImageUrl(value) {
+                try {
+                    const url = new URL(String(value || ""));
+                    return url.protocol === "https:" ? url.href : "";
+                } catch (error) {
+                    return "";
+                }
+            }
+
+            escapeHTML(value) {
+                return String(value == null ? "" : value).replace(/[&<>"']/g, character => ({
+                    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+                }[character]));
             }
 
             // --- UI Rendering ---
@@ -535,42 +648,71 @@
             }
 
             renderVideos(list) {
-                const grid = document.getElementById('video-grid');
-                
-                list.forEach(video => {
-                    const views = this.formatViews(video.views_total);
-                    const time = this.formatDuration(video.duration);
-                    const timeAgo = this.getRandomTimeAgo(); // Mocking since API time is static sometimes
-                    const avatarColor = this.getRandomColor();
-                    const isWatched = Store.watched[video.id] ? `style="width: ${Store.watched[video.id]}%"` : 'style="width: 0%"';
-                    
-                    const card = document.createElement('div');
-                    card.className = "video-card flex flex-col gap-3 cursor-pointer group";
-                    card.onclick = () => this.openPlayer(video);
+                const grid = document.getElementById("video-grid");
 
-                    card.innerHTML = `
-                        <div class="relative w-full aspect-video rounded-xl overflow-hidden bg-gray-200 shadow-sm group-hover:shadow-md transition">
-                            <img src="${video.thumbnail_720_url}" class="thumbnail w-full h-full object-cover">
-                            <div class="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1.5 py-0.5 rounded font-medium">${time}</div>
-                            <!-- Red Line -->
-                            <div class="progress-bar-bg"><div class="progress-fill" ${isWatched}></div></div>
-                        </div>
-                        <div class="flex gap-3 px-1">
-                            <div class="w-9 h-9 rounded-full ${avatarColor} text-white flex items-center justify-center font-bold text-sm uppercase flex-shrink-0">
-                                ${video['owner.screenname'].charAt(0)}
-                            </div>
-                            <div class="flex flex-col flex-1">
-                                <h3 class="font-bold text-sm text-gray-900 line-clamp-2 leading-tight group-hover:text-blue-600 transition" title="${video.title}">${video.title}</h3>
-                                <div class="text-xs text-gray-500 mt-1 flex items-center gap-1 hover:text-gray-700">
-                                    ${video['owner.screenname']} <i class="fas fa-check-circle text-gray-400 text-[10px]"></i>
-                                </div>
-                                <div class="text-xs text-gray-500">${views} views • ${timeAgo}</div>
-                            </div>
-                            <div class="opacity-0 group-hover:opacity-100 transition">
-                                <i class="fas fa-ellipsis-v text-gray-600 text-xs p-1"></i>
-                            </div>
-                        </div>
-                    `;
+                list.forEach(video => {
+                    const card = document.createElement("article");
+                    card.className = "video-card flex flex-col gap-3 cursor-pointer group";
+                    card.tabIndex = 0;
+                    card.setAttribute("role", "button");
+                    card.setAttribute("aria-label", "Play " + video.title);
+                    card.onclick = () => this.openPlayer(video);
+                    card.onkeydown = event => {
+                        if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            this.openPlayer(video);
+                        }
+                    };
+
+                    const preview = document.createElement("div");
+                    preview.className = "relative w-full aspect-video rounded-xl overflow-hidden bg-gray-200 shadow-sm group-hover:shadow-md transition";
+                    const img = document.createElement("img");
+                    img.src = video.thumbnail_720_url;
+                    img.alt = video.title;
+                    img.loading = "lazy";
+                    img.decoding = "async";
+                    img.className = "thumbnail w-full h-full object-cover";
+                    img.onerror = () => {
+                        img.onerror = null;
+                        preview.classList.add("flex", "items-center", "justify-center");
+                        img.remove();
+                        const fallback = document.createElement("span");
+                        fallback.className = "text-sm text-gray-500";
+                        fallback.textContent = "Thumbnail unavailable";
+                        preview.appendChild(fallback);
+                    };
+                    preview.appendChild(img);
+
+                    if (Number.isFinite(video.duration) && video.duration > 0) {
+                        const duration = document.createElement("span");
+                        duration.className = "absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1.5 py-0.5 rounded font-medium";
+                        duration.textContent = this.formatDuration(video.duration);
+                        preview.appendChild(duration);
+                    }
+
+                    const meta = document.createElement("div");
+                    meta.className = "flex gap-3 px-1";
+                    const avatar = document.createElement("div");
+                    avatar.className = "w-9 h-9 rounded-full " + this.getRandomColor() + " text-white flex items-center justify-center font-bold text-sm uppercase flex-shrink-0";
+                    avatar.textContent = (video["owner.screenname"] || "?").charAt(0).toUpperCase();
+
+                    const details = document.createElement("div");
+                    details.className = "flex flex-col flex-1 min-w-0";
+                    const title = document.createElement("h3");
+                    title.className = "font-bold text-sm text-gray-900 line-clamp-2 leading-tight group-hover:text-blue-600 transition";
+                    title.title = video.title;
+                    title.textContent = video.title;
+                    const channel = document.createElement("div");
+                    channel.className = "text-xs text-gray-500 mt-1 truncate";
+                    channel.textContent = video["owner.screenname"] || "Unknown channel";
+                    const stats = document.createElement("div");
+                    stats.className = "text-xs text-gray-500";
+                    const views = this.formatViews(video.views_total) + " views";
+                    const age = this.getTimeAgo(video.created_time);
+                    stats.textContent = views + (age ? " • " + age : "");
+                    details.append(title, channel, stats);
+                    meta.append(avatar, details);
+                    card.append(preview, meta);
                     grid.appendChild(card);
                 });
             }
@@ -584,54 +726,70 @@
             }
 
             generateShorts(videoList) {
-                const container = document.getElementById('shorts-container');
-                container.innerHTML = ""; // Clear skeletons
-                
-                // Use the fetched videos to create "Shorts" visuals (cropping them)
-                videoList.slice(0, 8).forEach(v => {
-                    const div = document.createElement('div');
-                    div.className = "min-w-[160px] h-[280px] rounded-xl overflow-hidden relative cursor-pointer flex-shrink-0 group";
-                    div.onclick = () => this.showToast("Shorts Player opening...", "info");
-                    
-                    div.innerHTML = `
-                        <img src="${v.thumbnail_720_url}" class="w-full h-full object-cover transform group-hover:scale-105 transition duration-500">
-                        <div class="absolute inset-0 bg-gradient-to-b from-transparent to-black/60"></div>
-                        <div class="absolute bottom-3 left-3 right-3 text-white">
-                            <div class="font-bold text-sm line-clamp-2 leading-tight mb-1">${v.title}</div>
-                            <div class="text-xs font-medium opacity-90">${this.formatViews(v.views_total)} views</div>
-                        </div>
-                        <div class="absolute top-2 right-2 text-white opacity-0 group-hover:opacity-100 transition"><i class="fas fa-ellipsis-v shadow-md"></i></div>
-                    `;
-                    container.appendChild(div);
+                const shelf = document.getElementById("shorts-section");
+                const container = document.getElementById("shorts-container");
+                container.replaceChildren();
+
+                // Only show verified portrait-format source videos. Never manufacture Shorts
+                // by cropping unrelated landscape thumbnails.
+                const shorts = (Array.isArray(videoList) ? videoList : []).filter(video =>
+                    Number(video.duration) > 0 &&
+                    Number(video.duration) <= 180 &&
+                    Number(video.height) > 0 &&
+                    Number(video.width) > 0 &&
+                    Number(video.height) > Number(video.width) &&
+                    this.safeImageUrl(video.thumbnail_720_url)
+                );
+
+                if (!shorts.length) {
+                    shelf.classList.add("hidden");
+                    return;
+                }
+                shelf.classList.remove("hidden");
+                shorts.slice(0, 8).forEach(video => {
+                    const card = document.createElement("button");
+                    card.type = "button";
+                    card.className = "min-w-[160px] h-[280px] rounded-xl overflow-hidden relative cursor-pointer flex-shrink-0 group text-left";
+                    card.setAttribute("aria-label", "Play vertical video: " + video.title);
+                    card.onclick = () => this.openPlayer(video);
+
+                    const img = document.createElement("img");
+                    img.src = video.thumbnail_720_url;
+                    img.alt = video.title;
+                    img.loading = "lazy";
+                    img.className = "w-full h-full object-cover";
+                    const shade = document.createElement("div");
+                    shade.className = "absolute inset-0 bg-gradient-to-b from-transparent to-black/70";
+                    const title = document.createElement("div");
+                    title.className = "absolute bottom-3 left-3 right-3 text-white font-bold text-sm line-clamp-2";
+                    title.textContent = video.title;
+                    card.append(img, shade, title);
+                    container.appendChild(card);
                 });
             }
 
             // --- Player Logic ---
             openPlayer(video) {
-                // Update History (Red Line Logic)
-                Store.saveWatched(video.id, Math.floor(Math.random() * 80) + 10); // Mock progress save
-                
-                // Fill Data
-                document.getElementById('m-title').innerText = video.title;
-                document.getElementById('m-header').innerText = video.title;
-                document.getElementById('m-channel').innerText = video['owner.screenname'];
-                document.getElementById('m-avatar').innerText = video['owner.screenname'].charAt(0);
-                document.getElementById('m-desc').innerText = video.description || "No description available for this video.";
-                document.getElementById('m-views').innerText = this.formatViews(video.views_total) + " views";
-                document.getElementById('main-iframe').src = `https://www.dailymotion.com/embed/video/${video.id}?autoplay=1`;
-                
-                // Subscription State
-                this.updateSubBtn(video['owner.screenname']);
+                if (!video || video.id == null) return;
+                Store.currentVideoId = String(video.id);
 
-                // Generate Mock Comments
+                document.getElementById("m-title").textContent = String(video.title || "Untitled video");
+                document.getElementById("m-header").textContent = String(video.title || "Playing video");
+                const channel = String(video["owner.screenname"] || "Unknown channel");
+                document.getElementById("m-channel").textContent = channel;
+                document.getElementById("m-avatar").textContent = channel.charAt(0).toUpperCase();
+                document.getElementById("m-desc").textContent = String(video.description || "No description available for this video.");
+                document.getElementById("m-views").textContent = this.formatViews(video.views_total) + " views";
+                document.getElementById("m-date").textContent = this.getTimeAgo(video.created_time) || "Date unavailable";
+                document.getElementById("main-iframe").src = "https://www.dailymotion.com/embed/video/" + encodeURIComponent(video.id) + "?autoplay=1";
+
+                this.updateSubBtn(channel);
+                document.getElementById("like-count").textContent = Store.liked[Store.currentVideoId] ? "Liked" : "Like";
                 this.renderMockComments();
+                this.fetchRecommendations(video);
 
-                // Generate Recommendations
-                this.fetchRecommendations(video.title);
-
-                // Show Modal
-                document.getElementById('player-modal').classList.remove('hidden');
-                document.body.style.overflow = 'hidden';
+                document.getElementById("player-modal").classList.remove("hidden");
+                document.body.style.overflow = "hidden";
             }
 
             closePlayer() {
@@ -643,64 +801,95 @@
                 // Ideally update DOM directly, but refreshing grid for demo
             }
 
-            async fetchRecommendations(title) {
-                const list = document.getElementById('rec-list');
-                list.innerHTML = `<div class="p-4 text-center text-gray-500"><i class="fas fa-circle-notch fa-spin"></i> Loading...</div>`;
-                
+            async fetchRecommendations(video) {
+                const list = document.getElementById("rec-list");
+                list.innerHTML = "";
+                const loading = document.createElement("div");
+                loading.className = "p-4 text-center text-gray-500";
+                loading.textContent = "Loading related videos...";
+                list.appendChild(loading);
+
+                const requestId = this.recommendationRequestId = (this.recommendationRequestId || 0) + 1;
+                const words = String(video && video.title || "").split(/\s+/).filter(word => word.length > 2).slice(0, 6);
+                const query = words.join(" ");
+                if (!query) {
+                    list.textContent = "No related videos available.";
+                    return;
+                }
+
                 try {
-                    const res = await fetch(`${AppConfig.videoApi}?fields=id,thumbnail_720_url,title,owner.screenname,views_total,duration&limit=10&search=${encodeURIComponent(title)}`);
-                    const data = await res.json();
-                    list.innerHTML = "";
-                    
-                    data.list.forEach(v => {
-                        const div = document.createElement('div');
-                        div.className = "flex gap-2 cursor-pointer hover:bg-gray-100 p-2 rounded-lg transition group";
-                        div.onclick = () => this.openPlayer(v);
-                        div.innerHTML = `
-                            <div class="relative w-40 h-24 rounded-lg overflow-hidden flex-shrink-0 bg-gray-200">
-                                <img src="${v.thumbnail_720_url}" class="w-full h-full object-cover">
-                                <span class="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1 rounded">${this.formatDuration(v.duration)}</span>
-                            </div>
-                            <div class="flex flex-col gap-1 py-1">
-                                <h4 class="text-sm font-bold line-clamp-2 leading-tight text-gray-900 group-hover:text-blue-600">${v.title}</h4>
-                                <p class="text-xs text-gray-500">${v['owner.screenname']}</p>
-                                <p class="text-xs text-gray-500">${this.formatViews(v.views_total)} views</p>
-                            </div>
-                        `;
-                        list.appendChild(div);
+                    const params = new URLSearchParams({
+                        fields: "id,thumbnail_720_url,title,owner.screenname,views_total,duration,created_time,description,width,height",
+                        limit: "20",
+                        page: "1",
+                        sort: "relevance",
+                        search: query
                     });
-                } catch(e) {
-                    list.innerHTML = `<div class="p-2 text-sm text-red-500">Failed to load recommendations.</div>`;
+                    const response = await fetch(AppConfig.videoApi + "?" + params.toString());
+                    if (!response.ok) throw new Error("Recommendation API returned HTTP " + response.status);
+                    const data = await response.json();
+                    if (requestId !== this.recommendationRequestId) return;
+                    if (!Array.isArray(data.list)) throw new Error("Invalid recommendation response");
+
+                    const related = this.normalizeVideos(data.list)
+                        .filter(item => String(item.id) !== String(video.id))
+                        .slice(0, 10);
+                    list.replaceChildren();
+
+                    if (!related.length) {
+                        list.textContent = "No relevant recommendations found.";
+                        return;
+                    }
+
+                    related.forEach(item => {
+                        const card = document.createElement("button");
+                        card.type = "button";
+                        card.className = "flex gap-2 text-left hover:bg-gray-100 p-2 rounded-lg transition group w-full";
+                        card.onclick = () => this.openPlayer(item);
+
+                        const imageWrap = document.createElement("div");
+                        imageWrap.className = "relative w-40 h-24 rounded-lg overflow-hidden flex-shrink-0 bg-gray-200";
+                        const image = document.createElement("img");
+                        image.src = item.thumbnail_720_url;
+                        image.alt = item.title;
+                        image.loading = "lazy";
+                        image.className = "w-full h-full object-cover";
+                        imageWrap.appendChild(image);
+
+                        const details = document.createElement("div");
+                        details.className = "flex flex-col gap-1 py-1 min-w-0";
+                        const title = document.createElement("span");
+                        title.className = "text-sm font-bold line-clamp-2 leading-tight text-gray-900 group-hover:text-blue-600";
+                        title.textContent = item.title;
+                        const owner = document.createElement("span");
+                        owner.className = "text-xs text-gray-500 truncate";
+                        owner.textContent = item["owner.screenname"] || "Unknown channel";
+                        const views = document.createElement("span");
+                        views.className = "text-xs text-gray-500";
+                        views.textContent = this.formatViews(item.views_total) + " views";
+                        details.append(title, owner, views);
+                        card.append(imageWrap, details);
+                        list.appendChild(card);
+                    });
+                } catch (error) {
+                    if (requestId === this.recommendationRequestId) {
+                        list.textContent = "Recommendations are temporarily unavailable.";
+                    }
                 }
             }
 
             renderMockComments() {
-                const list = document.getElementById('comments-list');
-                const comments = [
-                    "This video is amazing! 🔥", "Love the quality, keep it up.", "Can you make a tutorial on this?", 
-                    "First comment!", "Underated channel.", "Watching from India 🇮🇳", "Absolutely stunning visuals.",
-                    "The editing is on another level.", "I learned so much today.", "Funny part at 2:30 😂"
-                ];
-                
-                list.innerHTML = comments.map(c => `
-                    <div class="flex gap-3">
-                        <div class="w-10 h-10 rounded-full ${this.getRandomColor()} text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
-                            ${String.fromCharCode(65 + Math.floor(Math.random() * 26))}
-                        </div>
-                        <div>
-                            <div class="flex items-center gap-2">
-                                <span class="text-xs font-bold text-gray-900">User ${Math.floor(Math.random()*1000)}</span>
-                                <span class="text-xs text-gray-500">2 hours ago</span>
-                            </div>
-                            <p class="text-sm text-gray-800 mt-0.5">${c}</p>
-                            <div class="flex items-center gap-4 mt-1 text-gray-500 text-xs font-bold">
-                                <span class="cursor-pointer hover:text-black"><i class="far fa-thumbs-up"></i> ${Math.floor(Math.random()*500)}</span>
-                                <span class="cursor-pointer hover:text-black"><i class="far fa-thumbs-down"></i></span>
-                                <span class="cursor-pointer hover:text-black">Reply</span>
-                            </div>
-                        </div>
-                    </div>
-                `).join('');
+                const list = document.getElementById("comments-list");
+                list.replaceChildren();
+                const heading = list.parentElement.querySelector("h3");
+                if (heading) heading.textContent = "Comments";
+                const input = list.parentElement.querySelector("input");
+                if (input) input.closest(".mb-6").classList.add("hidden");
+
+                const notice = document.createElement("p");
+                notice.className = "text-sm text-gray-500 py-4";
+                notice.textContent = "Comments are not available from the current video API. Fake comments are intentionally hidden.";
+                list.appendChild(notice);
             }
 
             // --- AI Interaction ---
@@ -717,90 +906,78 @@
             }
 
             async sendAIMessage() {
-                const input = document.getElementById('ai-input');
-                const msgBox = document.getElementById('ai-messages');
-                const text = input.value.trim();
-                
-                if(!text) return;
+                const input = document.getElementById("ai-input");
+                const msgBox = document.getElementById("ai-messages");
+                const message = input.value.trim();
+                if (!message) return;
 
-                // User Msg
-                msgBox.innerHTML += `
-                    <div class="message-bubble bg-blue-600 text-white p-3 rounded-2xl rounded-tr-none self-end ml-auto max-w-[85%] text-sm shadow-sm text-right mb-2">
-                        ${text}
-                    </div>
-                `;
+                const userBubble = document.createElement("div");
+                userBubble.className = "message-bubble bg-blue-600 text-white p-3 rounded-2xl rounded-tr-none self-end ml-auto max-w-[85%] text-sm shadow-sm text-right mb-2";
+                userBubble.textContent = message;
+                msgBox.appendChild(userBubble);
                 input.value = "";
                 msgBox.scrollTop = msgBox.scrollHeight;
 
-                // Deep Search Check
-                if(text.toLowerCase().includes('search') || text.toLowerCase().includes('play')) {
-                    const query = text.replace(/search|play|find/gi, "").trim();
-                    this.filter(query);
-                    msgBox.innerHTML += `<div class="text-xs text-center text-gray-400 mb-2">Searching App for "${query}"...</div>`;
+                if (/\b(search|play|find)\b/i.test(message)) {
+                    const query = message.replace(/\b(search|play|find)\b/gi, "").trim();
+                    if (query) {
+                        this.filter(query);
+                        const status = document.createElement("div");
+                        status.className = "text-xs text-center text-gray-400 mb-2";
+                        status.textContent = "Searching VidTube for \"" + query + "\"...";
+                        msgBox.appendChild(status);
+                    }
                     return;
                 }
 
-                // AI Indicator
-                const loaderId = "ai-load-" + Date.now();
-                msgBox.innerHTML += `<div id="${loaderId}" class="text-gray-400 text-xs ml-2 mb-2 flex items-center gap-1"><i class="fas fa-circle-notch fa-spin"></i> Thinking...</div>`;
+                const loader = document.createElement("div");
+                loader.className = "text-gray-400 text-xs ml-2 mb-2";
+                loader.textContent = "Thinking...";
+                msgBox.appendChild(loader);
                 msgBox.scrollTop = msgBox.scrollHeight;
 
                 try {
-                    // AI को अरविंद बिश्नोई (आपका नाम) सिखाया गया है
-                    const res = await fetch(AppConfig.aiHost, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${AppConfig.apiKey}`
-                        },
-                        body: JSON.stringify({
-                            model: "gpt-3.5-turbo",
-                            messages: [
-                                {
-                                    role: "system", 
-                                    content: "You are StreamHub AI. Be helpful, concise and fun. Use emojis. If anyone asks 'who created you', 'who made this website', 'who is your creator', or similar questions, you must strictly answer 'I was created by Arvind Dara bishnoi'."
-                                },
-                                {role: "user", content: text}
-                            ]
-                        })
+                    const response = await fetch(AppConfig.aiHost, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ message })
                     });
+                    if (!response.ok) throw new Error("AI backend returned HTTP " + response.status);
+                    const data = await response.json();
 
-                    const data = await res.json();
-                    document.getElementById(loaderId).remove();
-
-                    if(data.choices) {
-                        const reply = data.choices[0].message.content;
-                        this.typewriterEffect(reply, msgBox);
-                    } else {
-                        throw new Error("No response");
-                    }
-
-                } catch(e) {
-                    document.getElementById(loaderId).innerText = "AI is currently offline.";
+                    const reply = data && data.choices && data.choices[0] && data.choices[0].message
+                        ? String(data.choices[0].message.content || "")
+                        : "";
+                    if (!reply) throw new Error("AI returned an empty response");
+                    loader.remove();
+                    this.typewriterEffect(reply, msgBox);
+                } catch (error) {
+                    loader.textContent = "AI is unavailable. Deploy the secure AI function and configure CHATANYWHERE_API_KEY.";
+                    console.error("AI request failed:", error);
                 }
             }
 
             typewriterEffect(text, container) {
-                const div = document.createElement('div');
+                const div = document.createElement("div");
                 div.className = "message-bubble bg-white border border-gray-200 p-3 rounded-2xl rounded-tl-none text-sm text-gray-700 shadow-sm max-w-[85%] mb-2";
                 container.appendChild(div);
-                
-                let i = 0;
+
+                let index = 0;
                 const speed = 10;
-                function type() {
-                    if (i < text.length) {
-                        div.innerHTML += text.charAt(i);
-                        i++;
+                const type = () => {
+                    if (index < text.length) {
+                        div.textContent += text.charAt(index);
+                        index += 1;
                         container.scrollTop = container.scrollHeight;
                         setTimeout(type, speed);
                     }
-                }
+                };
                 type();
             }
 
             // --- Interactions & Utils ---
             filter(query) {
-                Store.query = query;
+                Store.query = String(query || "").trim() || "Trending";
                 this.fetchVideos(true);
                 // Update active chip
                 document.querySelectorAll('.chip').forEach(c => {
@@ -832,9 +1009,13 @@
             }
 
             handleLike() {
-                // Mock ID for current video context
-                const isLiked = Store.toggleLike("current_video");
-                this.showToast(isLiked ? "Added to Liked Videos" : "Removed from Liked Videos", "info");
+                if (!Store.currentVideoId) {
+                    this.showToast("Open a video before liking it.", "info");
+                    return;
+                }
+                const isLiked = Store.toggleLike(Store.currentVideoId);
+                document.getElementById("like-count").textContent = isLiked ? "Liked" : "Like";
+                this.showToast(isLiked ? "Added to your local liked videos" : "Removed from your local liked videos", "info");
             }
 
             showToast(msg, type = "info") {
@@ -850,28 +1031,23 @@
             }
 
             setupEventListeners() {
-                // Search on Enter
-                document.getElementById('search-input').addEventListener('keypress', (e) => {
-                    if(e.key === 'Enter') {
-                        Store.query = e.target.value;
-                        this.fetchVideos(true);
-                    }
-                });
-                
-                document.getElementById('search-btn').onclick = () => {
-                    Store.query = document.getElementById('search-input').value;
-                    this.fetchVideos(true);
+                const searchInput = document.getElementById("search-input");
+                const runSearch = () => {
+                    Store.query = searchInput.value.trim() || "Trending";
+                    this.filter(Store.query);
                 };
+                searchInput.addEventListener("keydown", event => {
+                    if (event.key === "Enter") runSearch();
+                });
+                document.getElementById("search-btn").addEventListener("click", runSearch);
 
-                // AI Enter
-                document.getElementById('ai-input').addEventListener('keypress', (e) => {
-                    if(e.key === 'Enter') this.sendAIMessage();
+                document.getElementById("ai-input").addEventListener("keydown", event => {
+                    if (event.key === "Enter") this.sendAIMessage();
                 });
 
-                // Menu Toggle
-                document.getElementById('menu-btn').onclick = () => {
-                    const sb = document.getElementById('sidebar');
-                    sb.classList.toggle('hidden');
+                document.getElementById("menu-btn").onclick = () => {
+                    const sidebar = document.getElementById("sidebar");
+                    sidebar.classList.toggle("hidden");
                 };
             }
 
@@ -883,7 +1059,7 @@
                 return n;
             }
             formatDuration(s) {
-                if(!s) return "4:20";
+                if(!s || !Number.isFinite(Number(s))) return "Duration unavailable";
                 const m = Math.floor(s/60);
                 const sec = s%60;
                 return `${m}:${sec<10?'0':''}${sec}`;
@@ -892,9 +1068,20 @@
                 const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-indigo-500', 'bg-pink-500'];
                 return colors[Math.floor(Math.random() * colors.length)];
             }
-            getRandomTimeAgo() {
-                const times = ["2 hours ago", "1 day ago", "3 days ago", "1 week ago", "Just now", "5 hours ago"];
-                return times[Math.floor(Math.random() * times.length)];
+            getTimeAgo(timestamp) {
+                if (timestamp == null || timestamp === "") return "";
+                const numeric = Number(timestamp);
+                const date = new Date(Number.isFinite(numeric) && numeric > 0
+                    ? (numeric < 1000000000000 ? numeric * 1000 : numeric)
+                    : timestamp);
+                if (Number.isNaN(date.getTime())) return "";
+                const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+                if (seconds < 60) return "Just now";
+                if (seconds < 3600) return Math.floor(seconds / 60) + " minutes ago";
+                if (seconds < 86400) return Math.floor(seconds / 3600) + " hours ago";
+                if (seconds < 2592000) return Math.floor(seconds / 86400) + " days ago";
+                if (seconds < 31536000) return Math.floor(seconds / 2592000) + " months ago";
+                return Math.floor(seconds / 31536000) + " years ago";
             }
             reset() {
                 location.reload();
